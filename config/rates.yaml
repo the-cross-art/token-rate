@@ -1,0 +1,46 @@
+# Two independent cost models. Both are computed for every request.
+#
+# 1. market  -> what a hosted provider would have charged. Drives Stripe billing.
+# 2. local   -> what this request ACTUALLY cost to produce on this machine.
+#               Derived from wall-clock time, not token count, which is the
+#               whole point: faster decoding = cheaper tokens.
+
+currency: usd
+
+# --- 1. Market rate card (USD per 1,000 tokens) -----------------------------
+market:
+  qwen3-8b:
+    prompt: 0.00018
+    completion: 0.00054
+  default:
+    prompt: 0.00050
+    completion: 0.00150
+
+# --- 2. Local cost model ----------------------------------------------------
+# The inputs (machine price, power draw) are per-machine, so they live in
+# config/profiles.yaml under the active profile's `cost:` block, not here.
+# cost_per_second = (hardware_amortization + marginal_power) / 3600
+# cost_per_request = cost_per_second * wall_clock_seconds
+
+# --- Measured on this machine (2026-10-14, MacBook Air M4 16GB) -------------
+# Reference points for sanity-checking the local cost model. Re-measure after
+# any hardware or model change, and ONLY on an otherwise-idle machine.
+#
+#   Qwen3-8B Q4_K_M, IDE + browser + Docker open:
+#       pp128  72.7 tok/s     tg64   6.2 +/- 2.09 tok/s     ~34 GB/s
+#   Qwen3-8B Q4_K_M, desktop closed:
+#       pp128 169.9 tok/s     tg64  20.8 +/- 0.04 tok/s    ~104 GB/s
+#   Qwen3-0.6B Q8_0 (draft), desktop closed:
+#       pp128 1139  tok/s     tg64  56.7 tok/s
+#
+# A 3.4x throughput swing from closing applications, which is a 3.4x swing in
+# cost per token -- larger than any decoding optimization will deliver. On a
+# 16GB machine free RAM is a throughput input: once the weights no longer fit
+# alongside everything else, pages go to swap and every token read hits SSD.
+# Note the variance collapsing from +/-2.09 to +/-0.04: under memory pressure
+# the measurement is mostly noise, so a benchmark taken on a working desktop
+# is not a benchmark.
+#
+# Resulting unit cost at the $0.0557/hour basis above:
+#   under pressure   $0.00250 per 1k output tokens   (4.6x hosted)
+#   idle machine     $0.00075 per 1k output tokens   (1.4x hosted)

@@ -1,0 +1,56 @@
+# Backend + model registry.
+#
+# Four arms, identical target weights (Qwen3-8B Q4_K_M), differing only in how
+# tokens are produced. Each gets its own port and only ONE runs at a time:
+# 16GB of unified memory cannot hold two 8B servers, and even if it could,
+# concurrent arms would contend for the same GPU and poison the measurement.
+#
+#   scripts/serve.sh <arm>   brings an arm up
+#   bench/ab_compare.py      cycles through them automatically
+
+backends:
+  llamacpp_spec:
+    kind: openai
+    base_url_env: LLAMACPP_SPEC_URL      # :8081
+  llamacpp_ngram:
+    kind: openai
+    base_url_env: LLAMACPP_NGRAM_URL     # :8082
+  llamacpp_plain:
+    kind: openai
+    base_url_env: LLAMACPP_PLAIN_URL     # :8083
+  ollama:
+    kind: openai
+    base_url_env: OLLAMA_BASE_URL        # :11434
+
+models:
+  spec-qwen3-8b:
+    backend: llamacpp_spec
+    upstream_model: qwen3-8b
+    rate_key: qwen3-8b
+    speculative: true
+    draft_model: Qwen3-0.6B-Q8_0
+    notes: "Draft-model speculative decoding. Costs ~0.7GB RAM for the draft."
+
+  ngram-qwen3-8b:
+    backend: llamacpp_ngram
+    upstream_model: qwen3-8b
+    rate_key: qwen3-8b
+    speculative: true
+    draft_model: null
+    notes: "N-gram speculative decoding. Zero extra memory; wins on repetitive
+            or quote-heavy output, near-zero gain on novel prose."
+
+  plain-qwen3-8b:
+    backend: llamacpp_plain
+    upstream_model: qwen3-8b
+    rate_key: qwen3-8b
+    speculative: false
+    notes: "Control arm. Same engine, same weights, no speculation."
+
+  ollama-qwen3-8b:
+    backend: ollama
+    upstream_model: qwen3:8b
+    rate_key: qwen3-8b
+    speculative: false
+    notes: "Second control. Different engine, so this isolates engine overhead
+            from speculation gains."

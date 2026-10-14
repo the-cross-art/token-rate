@@ -1,0 +1,13 @@
+
+__pycache__/
+.env
+.venv/
+*.egg-info/
+*.pyc
+data/*.db
+data/bench.json
+data/logs/
+data/monitoring/
+data/stripe.json
+models/*.gguf
+monitoring/grafana/data/

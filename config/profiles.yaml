@@ -1,0 +1,73 @@
+# Hardware profiles. Everything machine-specific lives here and nowhere else,
+# so moving to different hardware is a one-line change rather than a hunt
+# through scripts.
+#
+# Select with TOKENRATE_PROFILE=<name>, or let scripts/profile.py auto-detect
+# from installed RAM.
+#
+# machine_cost_usd / load_watts drive the LOCAL cost model. If you do not
+# update them for your machine, every local cost number will be wrong.
+# Measure load_watts with:  sudo powermetrics --samplers cpu_power -i 1000
+
+default: auto          # 'auto' picks by RAM; or name a profile explicitly
+
+profiles:
+
+  air-m4-16gb:
+    description: "MacBook Air M4, 16GB unified memory"
+    min_ram_gb: 12
+    max_ram_gb: 24
+    target:
+      repo: Qwen/Qwen3-8B-GGUF
+      file: Qwen3-8B-Q4_K_M.gguf
+      approx_gb: 4.7
+    draft:
+      repo: Qwen/Qwen3-0.6B-GGUF
+      file: Qwen3-0.6B-Q8_0.gguf
+      approx_gb: 0.6
+    context: 8192
+    spec_draft_n_max: 6
+    spec_draft_p_min: 0.75
+    cost:
+      machine_cost_usd: 1299.00
+      amortization_hours: 26280      # 3 years
+      load_watts: 25.0
+      idle_watts: 4.0
+      electricity_usd_per_kwh: 0.30
+    notes: >
+      Tight. The 8B leaves little headroom, so close your IDE and browser
+      before benchmarking -- measured 6.2 tok/s under desktop load versus
+      20.8 tok/s idle. Monitoring should run natively, not under Docker.
+
+  m5pro-48gb:
+    description: "MacBook Pro M5 Pro, 48GB unified memory"
+    min_ram_gb: 36
+    max_ram_gb: 64
+    # A DENSE 32B is the better teaching target than a same-size MoE: MoE
+    # models activate only a few billion parameters per token, so they are
+    # already fast and speculation helps them far less. Dense models are
+    # memory-bandwidth bound, which is exactly what speculative decoding
+    # attacks. Swap to Qwen3-30B-A3B to see that contrast for yourself.
+    target:
+      repo: Qwen/Qwen3-32B-GGUF
+      file: Qwen3-32B-Q4_K_M.gguf
+      approx_gb: 19.8
+    # A 1.7B drafter instead of 0.6B: with 48GB the extra ~1.2GB is free, and
+    # a stronger drafter raises acceptance, which is what actually converts
+    # into speed.
+    draft:
+      repo: Qwen/Qwen3-1.7B-GGUF
+      file: Qwen3-1.7B-Q8_0.gguf
+      approx_gb: 1.8
+    context: 32768
+    spec_draft_n_max: 8
+    spec_draft_p_min: 0.70
+    cost:
+      machine_cost_usd: 2999.00       # UPDATE to what you actually paid
+      amortization_hours: 26280
+      load_watts: 45.0                # UPDATE: measure with powermetrics
+      idle_watts: 6.0
+      electricity_usd_per_kwh: 0.30
+    notes: >
+      Comfortable. ~22GB of models leaves room for Docker Desktop, a 32k
+      context and a browser. Docker-based monitoring is fine here.

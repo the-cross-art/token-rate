@@ -1,0 +1,12 @@
+apiVersion: 1
+providers:
+  - name: token-rate
+    folder: Token Rate
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      # Resolved from the environment by scripts/monitoring.sh so the path
+      # follows the repo instead of being pinned to a container filesystem.
+      path: $__env{TOKENRATE_DASHBOARDS}
+      foldersFromFilesStructure: false
