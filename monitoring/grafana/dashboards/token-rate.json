@@ -10,7 +10,7 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 5,
+  "version": 6,
   "refresh": "10s",
   "time": {
     "from": "now-30m",
@@ -1413,6 +1413,391 @@
         "tooltip": {
           "mode": "multi",
           "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Concurrency \u2014 the batch size your margin depends on",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Aggregate vs per-request throughput",
+      "description": "The single most important chart for a token-billing service. Decoding is memory-bandwidth bound: one token requires reading every weight. Serving N requests from one weight read is what makes tokens cheap. AGGREGATE tokens/sec should climb with concurrency while PER-REQUEST speed falls \u2014 that divergence is your margin being created. Where the aggregate line flattens is your batch ceiling.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tokenrate-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tokenrate-prom"
+          },
+          "expr": "rate(tokenrate_aggregate_completion_tokens_total[1m])",
+          "legendFormat": "aggregate tok/s",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tokenrate-prom"
+          },
+          "expr": "sum(tokenrate_decode_tokens_per_second_sum)\n  / (sum(tokenrate_decode_tokens_per_second_count) > 0)",
+          "legendFormat": "per-request tok/s",
+          "refId": "B",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisBorderShow": false,
+            "gradientMode": "none"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "aggregate tok/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "per-request tok/s"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Requests in flight (effective batch size)",
+      "description": "How many requests the server is serving simultaneously. This is the lever: the same GPU-second serves one request or sixty-four for the same cost. If this sits at 1 under load, you are paying full price for every token.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tokenrate-prom"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tokenrate-prom"
+          },
+          "expr": "tokenrate_inflight_requests",
+          "legendFormat": "in flight",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 18,
+            "pointSize": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisBorderShow": false,
+            "gradientMode": "none"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Cost per 1M output tokens",
+      "description": "Hourly cost basis divided by current aggregate throughput. Falls as concurrency rises. This is the floor under any price you can charge.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tokenrate-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 64
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tokenrate-prom"
+          },
+          "expr": "(sum(rate(tokenrate_local_cost_usd_total[5m])) * 1000000)\n  / (rate(tokenrate_aggregate_completion_tokens_total[5m]) > 0)",
+          "legendFormat": "usd",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2,
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#3987e5",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Peak concurrency seen",
+      "description": "Highest simultaneous request count observed. Compare with your load generator's setting: if it is far lower, requests are queueing upstream rather than batching.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tokenrate-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 64
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tokenrate-prom"
+          },
+          "expr": "max_over_time(tokenrate_inflight_requests[1h])",
+          "legendFormat": "peak",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#199e70"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#199e70",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Batching efficiency",
+      "description": "Aggregate throughput divided by single-request speed \u2014 effectively how many requests' worth of tokens each weight read is producing. 1.0 means no batching benefit at all.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "tokenrate-prom"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 64
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "tokenrate-prom"
+          },
+          "expr": "(rate(tokenrate_aggregate_completion_tokens_total[5m]))\n  / ((sum(tokenrate_decode_tokens_per_second_sum)\n      / (sum(tokenrate_decode_tokens_per_second_count) > 0)) > 0)",
+          "legendFormat": "x",
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d03b3b",
+                "value": null
+              },
+              {
+                "color": "#fab219",
+                "value": 2
+              },
+              {
+                "color": "#0ca30c",
+                "value": 4
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "graphMode": "none",
+        "colorMode": "value",
+        "justifyMode": "auto",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
       }
     }

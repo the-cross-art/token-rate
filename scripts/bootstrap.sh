@@ -71,7 +71,7 @@ Start it in four shells:
   make monitoring     # Prometheus :9090 + Grafana :3001   (native, ~420MB)
   make proxy          # metering proxy :8080               (leave running)
   make spec           # speculative arm :8081              (leave running)
-  make swarm          # run the pipeline, print the cost table
+  make load           # ramp concurrency, find the batch ceiling
 
 Then:  http://127.0.0.1:3001/d/token-rate-main
 

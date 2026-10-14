@@ -49,10 +49,13 @@ stop: ## stop all llama.cpp arms
 status: ## show the profile and which ports are up
 	./scripts/serve.sh status
 
-swarm: ## run the LangGraph research swarm once
-	$(PY) -m swarm.run
+load: ## find the batch ceiling (ramps concurrency 1->32)
+	$(PY) bench/load.py --sweep
 
-bench: ## A/B every arm over the standard prompt set
+load-at: ## hold one concurrency level: make load-at N=32
+	$(PY) bench/load.py --concurrency $(or $(N),8) --duration 60
+
+bench: ## A/B every decoding arm over the standard prompt set
 	$(PY) bench/ab_compare.py
 
 stripe-setup: ## create Stripe test-mode meter, price and per-agent customers
@@ -73,5 +76,5 @@ down: ## stop EVERYTHING this project starts
 	@echo "all stopped"
 
 .PHONY: help bootstrap setup models profile monitoring monitoring-docker \
-        monitoring-down proxy spec ngram plain ollama stop status swarm bench \
+        monitoring-down proxy spec ngram plain ollama stop status load load-at bench \
         stripe-setup stripe-usage usage down

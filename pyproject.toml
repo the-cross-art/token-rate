@@ -12,11 +12,8 @@ dependencies = [
     "pydantic>=2.9",
     "python-dotenv>=1.0",
     "stripe>=11.1",
-    "langgraph>=0.2.50",
-    "langchain-openai>=0.2.10",
-    "langchain-core>=0.3.20",
     "rich>=13.9",
 ]
 
 [tool.setuptools]
-packages = ["proxy", "swarm"]
+packages = ["proxy"]

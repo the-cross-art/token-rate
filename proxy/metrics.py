@@ -84,6 +84,40 @@ draft_accepted_total = Counter(
     "tokenrate_draft_accepted_total", "Drafted tokens accepted by the target.", ("model",)
 )
 
+# --- Concurrency -----------------------------------------------------------
+# These are the metrics that decide whether a token-billing service makes
+# money. Decoding is memory-bandwidth bound: producing one token requires
+# reading every weight in the model. Serving N requests from a single weight
+# read is what makes tokens cheap, so AGGREGATE throughput -- not per-request
+# speed -- is the number your margin depends on. A server at batch 1 and the
+# same server at batch 64 cost the same per second and differ ~50x in cost per
+# token.
+inflight_requests = Gauge(
+    "tokenrate_inflight_requests",
+    "Requests currently being served. This is the effective batch size.",
+)
+
+# Sampled at the moment each request STARTS, so the distribution shows the
+# concurrency actually achieved rather than the concurrency requested.
+observed_concurrency = Histogram(
+    "tokenrate_observed_concurrency",
+    "In-flight request count observed at request start.",
+    buckets=(1, 2, 4, 8, 16, 32, 64, 128, 256, 512),
+)
+
+# Aggregate output tokens, unlabelled, so a single PromQL rate() gives total
+# service throughput without summing across label permutations.
+aggregate_completion_tokens = Counter(
+    "tokenrate_aggregate_completion_tokens_total",
+    "All output tokens served, for whole-service throughput.",
+)
+
+queue_wait_seconds = Histogram(
+    "tokenrate_queue_wait_seconds",
+    "Time between accepting a request and the upstream accepting it.",
+    buckets=(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10),
+)
+
 # --- Billing ---------------------------------------------------------------
 stripe_events_total = Counter(
     "tokenrate_stripe_meter_events_total",

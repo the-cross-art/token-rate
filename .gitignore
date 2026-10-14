@@ -4,8 +4,12 @@ __pycache__/
 .venv/
 *.egg-info/
 *.pyc
+*.swp
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/bench.json
+data/load.json
 data/logs/
 data/monitoring/
 data/stripe.json

@@ -59,6 +59,26 @@ app = FastAPI(title="token-rate metering proxy", lifespan=lifespan)
 # --------------------------------------------------------------------------- 
 # helpers
 # ---------------------------------------------------------------------------
+class _InFlight:
+    """Tracks concurrent requests so the batch size is observable.
+
+    Used as a context manager around every upstream call, including the
+    streaming path, so a client disconnecting mid-stream cannot leak the
+    gauge upward and make the service look permanently busy.
+    """
+
+    def __enter__(self):
+        metrics.inflight_requests.inc()
+        # Read after inc so a lone request reports 1, not 0.
+        self.observed = metrics.inflight_requests._value.get()
+        metrics.observed_concurrency.observe(self.observed)
+        return self
+
+    def __exit__(self, *exc):
+        metrics.inflight_requests.dec()
+        return False
+
+
 def _attribution(req: Request) -> dict:
     return {
         "agent": req.headers.get("X-Agent", "anonymous"),
@@ -127,6 +147,7 @@ def _observe(
     metrics.requests_total.labels(*labels, status).inc()
     metrics.prompt_tokens_total.labels(*labels).inc(prompt_tokens)
     metrics.completion_tokens_total.labels(*labels).inc(completion_tokens)
+    metrics.aggregate_completion_tokens.inc(completion_tokens)
     if reasoning_tokens:
         metrics.reasoning_tokens_total.labels(*labels).inc(reasoning_tokens)
     metrics.market_cost_usd_total.labels(*labels).inc(cost.market_total_usd)
@@ -271,18 +292,19 @@ async def chat_completions(request: Request):
         )
 
     start = time.perf_counter()
-    try:
-        resp = await client.post(url, json=upstream_body)
-        resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001
+    with _InFlight():
+        try:
+            resp = await client.post(url, json=upstream_body)
+            resp.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            wall = time.perf_counter() - start
+            _observe(route, attribution, 0, 0, None, wall, None, "error")
+            log.error("upstream %s failed: %s", route.backend, exc)
+            return JSONResponse(
+                {"error": {"message": str(exc), "type": "upstream_error"}},
+                status_code=502,
+            )
         wall = time.perf_counter() - start
-        _observe(route, attribution, 0, 0, None, wall, None, "error")
-        log.error("upstream %s failed: %s", route.backend, exc)
-        return JSONResponse(
-            {"error": {"message": str(exc), "type": "upstream_error"}}, status_code=502
-        )
-
-    wall = time.perf_counter() - start
     data = resp.json()
     usage_obj = data.get("usage") or {}
     p_tok = int(usage_obj.get("prompt_tokens", 0))
@@ -322,6 +344,11 @@ async def _stream(client, url, body, route: ModelRoute, attribution: dict):
     reasoning_chars = content_chars = 0
     timings: dict | None = None
 
+    # try/finally rather than a `with` block: wrapping the whole streaming body
+    # would need an extra indent level across 40 lines, and a generator that is
+    # closed early (client disconnect) must still decrement the gauge.
+    tracker = _InFlight()
+    tracker.__enter__()
     try:
         async with client.stream("POST", url, json=body) as resp:
             resp.raise_for_status()
@@ -368,6 +395,8 @@ async def _stream(client, url, body, route: ModelRoute, attribution: dict):
         log.error("stream from %s failed: %s", route.backend, exc)
         yield f'data: {{"error": {json.dumps(str(exc))}}}\n\n'
         return
+    finally:
+        tracker.__exit__(None, None, None)
 
     wall = time.perf_counter() - start
     # Backends that omit a usage chunk still gave us one delta per token.

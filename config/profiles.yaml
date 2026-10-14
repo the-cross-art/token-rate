@@ -71,3 +71,41 @@ profiles:
     notes: >
       Comfortable. ~22GB of models leaves room for Docker Desktop, a 32k
       context and a browser. Docker-based monitoring is fine here.
+
+  gpu-pool:
+    description: "Rented GPU, billed by the hour (the production shape)"
+    # Never auto-selected: a rented GPU's cost basis has nothing to do with how
+    # much RAM the host reports. Choose it explicitly:
+    #   TOKENRATE_PROFILE=gpu-pool make proxy
+    min_ram_gb: 999999
+    max_ram_gb: 999999
+    target:
+      repo: Qwen/Qwen3-32B-GGUF
+      file: Qwen3-32B-Q4_K_M.gguf
+      approx_gb: 19.8
+    draft:
+      repo: Qwen/Qwen3-1.7B-GGUF
+      file: Qwen3-1.7B-Q8_0.gguf
+      approx_gb: 1.8
+    context: 32768
+    spec_draft_n_max: 8
+    spec_draft_p_min: 0.70
+    cost:
+      # A rented GPU is not amortized -- you pay a flat hourly rate whether it
+      # is busy or idle. Expressed here as a 1-hour "machine" so the same
+      # formula applies: cost_per_hour = machine_cost_usd / amortization_hours.
+      machine_cost_usd: 2.50       # UPDATE: your $/GPU-hour (H100 on-demand ~2.50)
+      amortization_hours: 1
+      # Power and cooling are already inside the hourly rate you are charged.
+      load_watts: 0.0
+      idle_watts: 0.0
+      electricity_usd_per_kwh: 0.0
+    notes: >
+      For modelling a token-billing service. Your margin is set by AGGREGATE
+      throughput, not per-request speed: the same GPU-hour divided by 50x more
+      tokens is 50x cheaper per token. Find the ceiling with
+      `python bench/load.py --sweep` -- the concurrency at which aggregate
+      tokens/sec stops climbing is the floor under any price you can charge.
+      llama.cpp is NOT the right server for this shape; it batches poorly.
+      Use vLLM or SGLang in production and point the proxy at them -- both
+      speak the same OpenAI API, so only config/models.yaml changes.

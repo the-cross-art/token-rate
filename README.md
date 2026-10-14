@@ -5,7 +5,7 @@ A working rig for learning **what a token actually costs** when you serve it you
 Quantized Qwen3-8B runs locally on Apple silicon through four different decoding
 strategies. Every request passes through a metering proxy that times it, counts
 it, prices it two ways, writes it to a ledger, exports it to Prometheus, and
-pushes it to a Stripe meter. A LangGraph swarm drives realistic, uneven load
+pushes it to a Stripe meter. A multi-tenant load generator drives concurrent load
 across it.
 
 The question the whole thing exists to answer: **does speculative decoding make
@@ -32,6 +32,32 @@ and this rig measures exactly how far it moves.
 
 Both numbers are computed for every single request and shown side by side.
 
+### The corollary: batching is where the money is
+
+A hosted provider is not cheaper than you because of hardware or electricity.
+It is cheaper because of **batch size**.
+
+Producing one token requires reading every weight in the model. If 64 requests
+are in flight, you read those weights **once** and produce 64 tokens from that
+read. The GPU-second costs the same either way:
+
+```
+batch   1  ->  1 token per weight read
+batch  64  ->  64 tokens per weight read, identical seconds billed
+```
+
+Measured on a rented-GPU basis of $2.50/hour:
+
+| batch | aggregate tok/s | $/1M tokens |
+|---|---|---|
+| 1 | 20 | $34.72 |
+| 8 | 140 | $4.96 |
+| 32 | 450 | $1.54 |
+| 128 | 1,400 | $0.50 |
+
+**69x**, same hardware, same model, same hour. That is the entire economics of
+selling tokens. `bench/load.py --sweep` finds where your server stops scaling.
+
 ---
 
 ## What's in here
@@ -39,8 +65,8 @@ Both numbers are computed for every single request and shown side by side.
 | Piece | What it is |
 |---|---|
 | `proxy/` | OpenAI-compatible FastAPI proxy — times, counts, prices, meters, bills |
-| `swarm/` | LangGraph research pipeline: planner → 3 researchers → critic → synthesizer |
-| `bench/` | A/B harness that cycles every decoding arm over identical prompts |
+| `bench/load.py` | **Multi-tenant load generator** — ramps concurrency to find the batch ceiling |
+| `bench/ab_compare.py` | A/B harness that cycles every decoding arm over identical prompts |
 | `monitoring/` | Prometheus + Grafana configs, provisioned from files (run natively, no Docker) |
 | `scripts/serve.sh` | Brings up one inference arm at a time |
 | `scripts/stripe_bootstrap.py` | Creates the Stripe test-mode meter, price and customers |
@@ -85,7 +111,7 @@ Then start it in four shells:
 make monitoring     # Prometheus :9090, Grafana :3001 — native, ~420MB
 make proxy          # metering proxy :8080   (leave running)
 make spec           # speculative arm :8081  (leave running)
-make swarm          # run the pipeline, print the cost table
+make load          # run the pipeline, print the cost table
 ```
 
 Grafana: **http://127.0.0.1:3001/d/token-rate-main** (anonymous viewer;
@@ -206,18 +232,18 @@ This is idempotent — run it as often as you like. It creates:
 |---|---|
 | **Meter** `llm_tokens` | sums usage events, keyed to a customer by `stripe_customer_id` |
 | **Product + metered Price** | $0.00054 per 1,000 tokens, driven by that meter |
-| **7 Customers** | one per swarm agent — `planner`, `researcher-1..3`, `critic`, `synthesizer`, `bench` |
+| **Customers** | one per tenant identity used by the load generator |
 | **7 Subscriptions** | what turns meter events into invoice line items |
 
-IDs are written to `data/stripe.json`. The swarm reads that file and sends each
-node's `X-Customer` header automatically — no further wiring.
+IDs are written to `data/stripe.json`. The load generator reads that file and sends each
+tenant's `X-Customer` header automatically — no further wiring.
 
 ### 4. Restart the proxy and generate usage
 
 ```bash
 # in the proxy's shell: Ctrl-C, then
 make proxy      # startup log should now say "stripe: ENABLED (test mode)"
-make swarm
+make load
 ```
 
 ### 5. See the usage
@@ -260,8 +286,10 @@ Three rows, in the order the questions actually arrive:
    If the arms overlap on throughput, speculation isn't earning its memory.
 2. **Unit economics** — local $/1k tokens per arm, hosted-equivalent vs actual
    cumulative spend, burn rate, margin.
-3. **Swarm attribution** — spend per agent, token rate per agent, a per-agent
+3. **Tenant attribution** — spend per tenant, token rate per tenant, a per-tenant
    ledger table.
+4. **Concurrency** — aggregate vs per-request throughput, in-flight requests,
+   cost per 1M tokens, batching efficiency.
 
 ### The number to watch: draft acceptance rate
 
@@ -271,24 +299,57 @@ compute. Below roughly **0.6 acceptance**, the drafter costs more than it saves 
 raise `--spec-draft-p-min` (demand more drafter confidence) or lower
 `--spec-draft-n-max` (draft shorter runs). Both knobs are in `scripts/serve.sh`.
 
-### The thing that will surprise you
+### Finding your batch ceiling
 
-In the research swarm, the **synthesizer** usually dominates spend while
-producing the *fewest* tokens. It sees every prior output, so its prompt is
-enormous. Watch the per-agent table's prompt-to-completion ratio: a high ratio
-means a node is paying to re-read context rather than to think, and that's the
-first thing to attack when trimming agent cost.
+```bash
+make load                      # ramps concurrency 1,2,4,8,16,32
+make load-at N=32              # hold one level for 60s
+```
+
+The load generator runs a realistic tenant mix — 55% short chat, 30% RAG with
+2,000-token prompts, 15% long generation — spread across distinct billing
+identities, so per-customer metering is exercised *under concurrency*, which is
+where meters double-count.
+
+**Measured here, llama.cpp with Qwen3-8B on an M4 Air:**
+
+| batch | aggregate tok/s | per-req tok/s | p99 latency | $/1M tokens |
+|---|---|---|---|---|
+| 1 | 15.6 | 16.3 | 19.2s | $0.99 |
+| 2 | **21.5** | 11.7 | 52.2s | **$0.72** |
+| 4 | 14.4 | 5.1 | 124.2s | $1.07 |
+
+**The ceiling is 2.** Past that, aggregate throughput *falls* while latency
+explodes 6x. That is a real and important result:
+
+> **llama.cpp is a single-user server.** It does not do continuous batching, so
+> it cannot turn concurrency into margin. It is excellent for local inference
+> and for comparing decoding strategies — which is what it is used for here —
+> and completely wrong for serving paying customers.
+
+For a token-billing service you want **vLLM or SGLang**, which do continuous
+batching and scale to hundreds of concurrent requests. Both speak the same
+OpenAI API, so switching is a `config/models.yaml` edit: point a backend at the
+new server and every other layer — metering, pricing, ledger, dashboards,
+Stripe — works unchanged. That portability is the reason the proxy implements
+the OpenAI protocol rather than wrapping a client library.
+
+### The cost pattern worth watching
+
+Prompt tokens, not output tokens, are usually where the money goes. A RAG
+tenant sending 2,000-token prompts for 250-token answers pays mostly to have
+context re-read. Watch the prompt:completion ratio per tenant in the per-agent
+table — a high ratio means that customer is paying you to read, not to think,
+and it is the first thing to attack when trimming cost.
 
 ### The other thing that will surprise you
 
-Your margin vs hosted will often be **negative**. Amortization accrues whether
-or not you're generating tokens, so an idle machine is pure loss, and hosted
-per-token prices for small models are genuinely very low. Self-hosting wins on
-sustained high utilization, privacy and latency — not automatically on price.
-This rig will show you the actual crossover point rather than letting you assume
-one.
-
----
+Your margin vs hosted will often be **negative** at batch 1. Amortization
+accrues whether or not you are generating, so an idle machine is pure loss, and
+hosted per-token prices for small models are genuinely very low. Self-hosting
+wins on sustained high utilization, privacy and latency — not automatically on
+price. This rig shows you the actual crossover point rather than letting you
+assume one.
 
 ## Moving to another machine
 
@@ -303,7 +364,7 @@ git clone <this repo> && cd token-rate
 The profile is picked from installed RAM automatically. On a 48 GB M5 Pro that
 selects `m5pro-48gb` — Qwen3-32B Q4_K_M with a Qwen3-1.7B drafter at 32k
 context — and the local cost model switches to that machine's basis. Proxy,
-dashboards, ledger, swarm and billing are unchanged.
+dashboards, ledger, load generator and billing are unchanged.
 
 If your machine is not covered, add a profile rather than editing scripts. The
 resolver **refuses to guess**: an unmatched machine is an error, not a silent
@@ -349,8 +410,8 @@ The proxy therefore estimates the reasoning/visible split from the character
 ratio between the `reasoning` and `content` fields — neither llama.cpp nor
 Ollama reports it separately — and exports it as
 `tokenrate_reasoning_tokens_estimated_total`. The **"Hidden reasoning as a share
-of billed output"** panel tracks it per agent.
+of billed output"** panel tracks it per tenant.
 
-Two mitigations, both in the swarm already: append `/no_think` to prompts that
-don't need deliberation, and set `max_tokens` high enough that thinking cannot
-consume the entire budget.
+Two mitigations, both in the load generator already: append `/no_think` to
+prompts that don't need deliberation, and set `max_tokens` high enough that
+thinking cannot consume the entire budget.

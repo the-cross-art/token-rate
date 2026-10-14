@@ -50,15 +50,22 @@ Do all of this:
    `sysctl vm.swapusage` before and after — if swap is growing during the
    benchmark, the numbers are not trustworthy and you should tell me.
 
-5. Run `make swarm`. This is a LangGraph pipeline (planner -> 3 parallel
-   researchers -> critic -> synthesizer). It prints a per-agent cost table.
-   Confirm the expected pattern holds: the synthesizer should have by far the
-   largest prompt-token count and the highest cost, because it sees every
-   prior output. Tell me the prompt:completion ratio for each agent.
+5. Run `make load`. This is the important one. It ramps concurrency through
+   1,2,4,8,16,32 with a realistic tenant mix (55% short chat, 30% RAG with
+   2000-token prompts, 15% long generation) and reports AGGREGATE tokens/sec
+   at each level. Tell me:
+   - the concurrency at which aggregate throughput STOPS climbing (the batch
+     ceiling) and the $/1M tokens there
+   - what p99 latency does as concurrency rises
+   On the M4 Air with llama.cpp the ceiling was 2 -- aggregate throughput
+   actually FELL at 4 while p99 latency went from 19s to 124s. llama.cpp does
+   not do continuous batching. I expect the same shape on the M5 Pro. If you
+   see a meaningfully higher ceiling, tell me, because that would change the
+   conclusion.
 
 6. Stripe (optional, test mode only, cannot charge money):
    - I'll give you a sk_test_ key to put in .env, and set STRIPE_ENABLED=true
-   - run `make stripe-setup` then restart the proxy and run `make swarm`
+   - run `make stripe-setup` then restart the proxy and run `make load-at N=8`
    - then run BOTH `make stripe-usage` and `make usage` and compare them.
      Those two disagreeing means meter events were dropped or double-counted.
      Report whether they reconcile.
