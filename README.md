@@ -153,6 +153,21 @@ which is exactly what speculative decoding attacks. Swap the profile's target
 to see that contrast yourself — it is one of the more interesting things this
 rig can show you.
 
+### Measured results
+
+Full run reports live in `docs/`, one per machine, written so you can pick up
+the project cold from just that file:
+
+- [`docs/RESULTS_m5pro_48gb.md`](docs/RESULTS_m5pro_48gb.md) — MacBook Pro
+  M5 Pro, 48GB, Qwen3-32B. Headline: speculative decoding gives a **much
+  bigger relative speedup on the dense 32B (+25% to +144%) than on the 8B
+  (+14%)**, despite lower draft acceptance — confirms the bandwidth-bound
+  hypothesis. Also covers the real batch ceiling (4, not the naive 32), a
+  GPU-backend crash from running Ollama alongside a llama.cpp arm, and a
+  Grafana query bug that was found and fixed.
+
+![Grafana dashboard, M5 Pro 48GB run](docs/images/grafana-dashboard-m5pro-48gb.png)
+
 ### Why monitoring runs natively by default
 
 Docker Desktop costs roughly **2 GB of RAM** to run a Linux VM whose only job is
