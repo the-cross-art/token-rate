@@ -1623,7 +1623,7 @@
             "type": "prometheus",
             "uid": "tokenrate-prom"
           },
-          "expr": "(sum(rate(tokenrate_local_cost_usd_total[5m])) * 1000000)\n  / (rate(tokenrate_aggregate_completion_tokens_total[5m]) > 0)",
+          "expr": "(sum(rate(tokenrate_local_cost_usd_total[5m])) * 1000000)\n  / (sum(rate(tokenrate_aggregate_completion_tokens_total[5m])) > 0)",
           "legendFormat": "usd",
           "refId": "A",
           "editorMode": "code",
@@ -1751,7 +1751,7 @@
             "type": "prometheus",
             "uid": "tokenrate-prom"
           },
-          "expr": "(rate(tokenrate_aggregate_completion_tokens_total[5m]))\n  / ((sum(tokenrate_decode_tokens_per_second_sum)\n      / (sum(tokenrate_decode_tokens_per_second_count) > 0)) > 0)",
+          "expr": "(sum(rate(tokenrate_aggregate_completion_tokens_total[5m])))\n  / ((sum(tokenrate_decode_tokens_per_second_sum)\n      / (sum(tokenrate_decode_tokens_per_second_count) > 0)) > 0)",
           "legendFormat": "x",
           "refId": "A",
           "editorMode": "code",

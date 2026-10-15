@@ -63,7 +63,7 @@ profiles:
     spec_draft_n_max: 8
     spec_draft_p_min: 0.70
     cost:
-      machine_cost_usd: 2999.00       # UPDATE to what you actually paid
+      machine_cost_usd: 3109.00       # ~INR 3,00,000 @ ~96.5 INR/USD (2026-10-15)
       amortization_hours: 26280
       load_watts: 45.0                # UPDATE: measure with powermetrics
       idle_watts: 6.0
